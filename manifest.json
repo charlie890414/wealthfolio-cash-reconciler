@@ -1,0 +1,52 @@
+{
+  "id": "wealthfolio-cash-reconciler",
+  "name": "交割現金對帳",
+  "version": "1.0.0",
+  "description": "檢查台灣證券帳戶的 BUY/SELL 與 DEPOSIT/WITHDRAWAL 是否對應，並在確認後逐筆新增。",
+  "author": "charlie890414",
+  "main": "dist/addon.js",
+  "sdkVersion": "3.6.2",
+  "minWealthfolioVersion": "3.6.2",
+  "enabled": true,
+  "contributes": {
+    "routes": [{ "id": "wealthfolio-cash-reconciler" }],
+    "links": {
+      "sidebar": [
+        {
+          "id": "wealthfolio-cash-reconciler",
+          "route": "wealthfolio-cash-reconciler",
+          "label": "交割現金對帳",
+          "icon": "squares-four",
+          "order": 100
+        }
+      ]
+    }
+  },
+  "hostDependencies": {
+    "@tanstack/react-query": "^5.90.0",
+    "@wealthfolio/addon-sdk": "^3.6.2",
+    "@wealthfolio/ui": "^3.6.0",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.561.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.7.0"
+  },
+  "permissions": [
+    {
+      "category": "accounts",
+      "functions": [{ "name": "getAll", "isDeclared": true, "isDetected": false }],
+      "purpose": "選擇要檢查的 Wealthfolio 帳戶"
+    },
+    {
+      "category": "activities",
+      "functions": [
+        { "name": "getAll", "isDeclared": true, "isDetected": false },
+        { "name": "saveMany", "isDeclared": true, "isDetected": false }
+      ],
+      "purpose": "比對交易與資金活動，並新增使用者確認的存提款"
+    }
+  ],
+  "keywords": ["wealthfolio", "addon"],
+  "license": "MIT"
+}
