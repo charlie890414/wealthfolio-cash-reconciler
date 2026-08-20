@@ -8,6 +8,7 @@
 - BUY 預期對應 DEPOSIT；SELL 與 DIVIDEND 預期對應 WITHDRAWAL。
 - 手續費與稅會納入預期金額。
 - DIVIDEND 會依 `amount - fee - tax` 建議轉出淨額；獨立的 TAX activity 尚未拆成另一筆轉出規則。
+- `DIVIDEND_IN_KIND` 是以資產單位發放、沒有現金流，不會建立 WITHDRAWAL 建議。
 - 畫面按日彙總，建立時逐筆新增，comment 會指出原始交易。
 - metadata 保存原始 activity ID，避免重複建立並能發現金額變更或孤兒 activity。
 - 只在使用者勾選並確認後呼叫 `saveMany`，不會背景自動寫入。

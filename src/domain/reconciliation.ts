@@ -14,6 +14,7 @@ export interface ReconciliationActivity {
   accountId: string;
   accountName: string;
   activityType: string;
+  subtype?: string | null;
   date: Date | string;
   symbol?: string | null;
   quantity?: string | number | null;
@@ -130,6 +131,7 @@ function isInDateRange(key: string, policy: ReconciliationPolicy): boolean {
 
 function expectationFor(activity: ReconciliationActivity): TradeExpectation | null {
   if (activity.activityType !== 'BUY' && activity.activityType !== 'SELL' && activity.activityType !== 'DIVIDEND') return null;
+  if (activity.activityType === 'DIVIDEND' && activity.subtype === 'DIVIDEND_IN_KIND') return null;
 
   const quantity = asNumber(activity.quantity);
   const unitPrice = asNumber(activity.unitPrice);
@@ -399,6 +401,7 @@ export function reconcile(
 export function toReconciliationActivity(activity: {
   id: string;
   activityType: string;
+  subtype?: string | null;
   date: Date;
   quantity: string | null;
   unitPrice: string | null;
@@ -417,6 +420,7 @@ export function toReconciliationActivity(activity: {
     accountId: activity.accountId,
     accountName: activity.accountName,
     activityType: activity.activityType,
+    subtype: activity.subtype,
     date: activity.date,
     symbol: activity.assetSymbol,
     quantity: activity.quantity,

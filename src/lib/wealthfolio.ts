@@ -37,6 +37,7 @@ export async function loadActivities(ctx: AddonContext, accountId?: string): Pro
     toReconciliationActivity({
       id: activity.id,
       activityType: activity.activityType,
+      subtype: activity.subtype,
       date: activity.date,
       quantity: activity.quantity,
       unitPrice: activity.unitPrice,
