@@ -12,6 +12,7 @@ import { loadPreferences, savePreferences } from '../lib/storage';
 import {
   type CashProposal,
   reconcile,
+  type ReconciliationPolicy,
   type ReconciliationReport,
   type ReconciliationStatus,
 } from '../domain/reconciliation';
@@ -70,10 +71,23 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirmingCreate, setConfirmingCreate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
   const selectedAccount = useMemo(() => accounts.find((account) => account.id === accountId), [accounts, accountId]);
+  const policy = useMemo<ReconciliationPolicy>(() => ({
+    startDate,
+    endDate,
+    amountTolerance: Math.max(0, Number(tolerance) || 0),
+  }), [endDate, startDate, tolerance]);
+
+  const updateReport = useCallback((loaded: Awaited<ReturnType<typeof loadActivities>>) => {
+    const nextReport = reconcile(loaded, policy);
+    setActivities(loaded);
+    setReport(nextReport);
+    setSelected(new Set(nextReport.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])))));
+  }, [policy]);
 
   const scan = useCallback(async () => {
     if (!accountId) return;
@@ -81,20 +95,14 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
     setError(null);
     try {
       const loaded = await loadActivities(ctx, accountId);
-      setActivities(loaded);
-      const nextReport = reconcile(loaded, {
-        startDate,
-        endDate,
-        amountTolerance: Math.max(0, Number(tolerance) || 0),
-      });
-      setReport(nextReport);
-      setSelected(new Set(nextReport.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])))));
+      updateReport(loaded);
+      setConfirmingCreate(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '讀取 Wealthfolio 資料失敗');
     } finally {
       setLoading(false);
     }
-  }, [accountId, ctx, endDate, startDate, tolerance]);
+  }, [accountId, ctx, updateReport]);
 
   useEffect(() => {
     void Promise.all([loadAccounts(ctx), loadPreferences(ctx)])
@@ -124,6 +132,13 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
     if (accountId) void scan();
   }, [accountId]);
 
+  useEffect(() => {
+    if (!preferencesLoaded || !accountId || loading) return;
+    const nextReport = reconcile(activities, policy);
+    setReport(nextReport);
+    setSelected(new Set(nextReport.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])))));
+  }, [accountId, activities, loading, policy, preferencesLoaded]);
+
   const proposals = report?.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : []))) || [];
   const selectedProposals = proposals.filter((proposal) => selected.has(proposalKey(proposal)));
 
@@ -137,22 +152,23 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
     });
   };
 
-  const createSelected = async () => {
+  const requestCreateSelected = () => {
     if (selectedProposals.length === 0) return;
-    const summary = selectedProposals
-      .map((proposal) => `${proposal.activityDate} ${proposal.activityType} ${money(proposal.amount, proposal.currency)}`)
-      .join('\n');
-    if (!window.confirm(`確定新增以下 ${selectedProposals.length} 筆資金 activity？\n\n${summary}`)) return;
+    setConfirmingCreate(true);
+  };
+
+  const createSelected = async () => {
+    if (selectedProposals.length === 0) {
+      setConfirmingCreate(false);
+      return;
+    }
+    setConfirmingCreate(false);
     setSaving(true);
     setError(null);
     try {
       // Re-read immediately before writing so an old scan cannot create duplicates.
       const latest = await loadActivities(ctx, accountId);
-      const latestReport = reconcile(latest, {
-        startDate,
-        endDate,
-        amountTolerance: Math.max(0, Number(tolerance) || 0),
-      });
+      const latestReport = reconcile(latest, policy);
       const latestProposals = latestReport.days
         .flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])))
         .filter((proposal) => selected.has(proposalKey(proposal)));
@@ -227,10 +243,25 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                   <h2 className="font-semibold">每日檢查結果</h2>
                   <p className="text-sm text-muted-foreground">畫面按日彙總，建立時仍會逐筆產生並在 comment 標示來源。</p>
                 </div>
-                <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving || selectedProposals.length === 0} onClick={() => void createSelected()}>
+                <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving || confirmingCreate || selectedProposals.length === 0} onClick={requestCreateSelected}>
                   {saving ? '新增中…' : `新增選取的 ${selectedProposals.length} 筆`}
                 </button>
               </div>
+
+              {confirmingCreate && (
+                <div role="dialog" aria-label="確認新增資金 activity" className="rounded border border-primary/40 bg-primary/5 p-3 space-y-3">
+                  <p className="font-medium">確定新增以下 {selectedProposals.length} 筆資金 activity？</p>
+                  <ul className="text-sm list-disc pl-5">
+                    {selectedProposals.map((proposal) => (
+                      <li key={proposalKey(proposal)}>{proposal.activityDate} {proposal.activityType} {money(proposal.amount, proposal.currency)}</li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2 justify-end">
+                    <button className="rounded border px-3 py-2" onClick={() => setConfirmingCreate(false)}>取消</button>
+                    <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving} onClick={() => void createSelected()}>確認新增</button>
+                  </div>
+                </div>
+              )}
 
               {report.days.length === 0 && <p className="text-sm text-muted-foreground">指定範圍內沒有 BUY／SELL。</p>}
               {report.days.map((day) => (
@@ -245,7 +276,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                       <tbody>
                         {day.trades.map((trade) => (
                           <tr key={trade.expectation.activityId} className="border-b last:border-0">
-                            <td className="py-2 pr-3">{trade.proposal ? <input type="checkbox" checked={selected.has(proposalKey(trade.proposal))} onChange={() => toggleProposal(trade.proposal!)} /> : '—'}</td>
+                            <td className="py-2 pr-3">{trade.proposal ? <input type="checkbox" disabled={confirmingCreate || saving} checked={selected.has(proposalKey(trade.proposal))} onChange={() => toggleProposal(trade.proposal!)} /> : '—'}</td>
                             <td className="py-2 pr-3">{trade.expectation.activityType} {trade.expectation.symbol}<br /><span className="text-xs text-muted-foreground">{trade.expectation.activityId}</span></td>
                             <td className="py-2 pr-3">{money(trade.expectation.expectedAmount, day.currency)}</td>
                             <td className={`py-2 pr-3 ${statusClass(trade.status)}`}>{statusLabel(trade.status)}</td>
@@ -272,7 +303,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
         </>
       )}
 
-      <p className="text-xs text-muted-foreground">已載入 {activities.length} 筆 activity。這個 addon 只在你開啟頁面或按下重新掃描時檢查，不會背景自動寫入。</p>
+      <p className="text-xs text-muted-foreground">已載入 {activities.length} 筆 activity。資料只在你開啟頁面或按下重新掃描時重新載入；日期與容差變更會即時重新計算，不會背景自動寫入。</p>
     </div>
   );
 }

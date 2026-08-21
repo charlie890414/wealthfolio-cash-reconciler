@@ -2,6 +2,7 @@ import type { AddonContext, Account, ActivityDetails } from '@wealthfolio/addon-
 import {
   type CashProposal,
   type ReconciliationActivity,
+  toCashActivityCreate,
   toReconciliationActivity,
 } from '../domain/reconciliation';
 
@@ -57,15 +58,9 @@ export async function loadActivities(ctx: AddonContext, accountId?: string): Pro
 export async function createCashActivities(ctx: AddonContext, proposals: CashProposal[]): Promise<void> {
   if (proposals.length === 0) return;
   const result = await ctx.api.activities.saveMany({
-    creates: proposals.map((proposal) => ({
-      accountId: proposal.accountId,
-      activityType: proposal.activityType,
-      activityDate: proposal.activityDate,
-      amount: proposal.amount,
-      currency: proposal.currency,
-      comment: proposal.comment,
-      metadata: proposal.metadata,
-    })),
+    creates: proposals.map(toCashActivityCreate),
+    updates: [],
+    deleteIds: [],
   });
   if (result.errors.length > 0) {
     throw new Error(result.errors.map((error) => error.message).join('; '));

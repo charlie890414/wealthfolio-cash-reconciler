@@ -62,6 +62,18 @@ export interface CashProposal {
   status: 'missing' | 'partial';
 }
 
+export function toCashActivityCreate(proposal: CashProposal) {
+  return {
+    accountId: proposal.accountId,
+    activityType: proposal.activityType,
+    activityDate: proposal.activityDate,
+    amount: proposal.amount,
+    currency: proposal.currency,
+    comment: proposal.comment,
+    metadata: JSON.stringify(proposal.metadata),
+  };
+}
+
 export interface TradeReconciliation {
   expectation: TradeExpectation;
   status: ReconciliationStatus;
@@ -198,6 +210,35 @@ function groupKey(activity: Pick<ReconciliationActivity, 'accountId' | 'currency
 
 function bucketKey(accountId: string, currency: string, key: string): string {
   return `${accountId}|${currency}|${key}`;
+}
+
+function withoutInternalTradePairs(
+  expectations: TradeExpectation[],
+  amountTolerance: number,
+): TradeExpectation[] {
+  const candidates: { buyIndex: number; sellIndex: number; difference: number }[] = [];
+  const pairTolerance = amountTolerance * 2;
+
+  for (let buyIndex = 0; buyIndex < expectations.length; buyIndex += 1) {
+    if (expectations[buyIndex].activityType !== 'BUY') continue;
+    for (let sellIndex = 0; sellIndex < expectations.length; sellIndex += 1) {
+      if (expectations[sellIndex].activityType !== 'SELL') continue;
+      const difference = Math.abs(
+        expectations[buyIndex].expectedAmount - expectations[sellIndex].expectedAmount,
+      );
+      if (difference <= pairTolerance) candidates.push({ buyIndex, sellIndex, difference });
+    }
+  }
+
+  candidates.sort((left, right) => left.difference - right.difference);
+  const pairedIndexes = new Set<number>();
+  for (const candidate of candidates) {
+    if (pairedIndexes.has(candidate.buyIndex) || pairedIndexes.has(candidate.sellIndex)) continue;
+    pairedIndexes.add(candidate.buyIndex);
+    pairedIndexes.add(candidate.sellIndex);
+  }
+
+  return expectations.filter((_, index) => !pairedIndexes.has(index));
 }
 
 function buildDay(
@@ -358,17 +399,23 @@ export function reconcile(
   }
 
   const days = Array.from(tradesByGroup.entries())
-    .map(([bucket, items]) => {
+    .flatMap(([bucket, items]) => {
       const [accountId, currency, key] = bucket.split('|');
-      return buildDay(
+      const expectations = withoutInternalTradePairs(
+        items.map((item) => item.expectation),
+        policy.amountTolerance,
+      );
+      if (expectations.length === 0) return [];
+      const day = buildDay(
         key,
         accountId,
         items[0].activity.accountName,
         currency,
-        items.map((item) => item.expectation),
+        expectations,
         cashByGroup.get(bucket) || [],
         policy,
       );
+      return [day];
     })
     .sort((left, right) => right.date.localeCompare(left.date));
 
