@@ -16,7 +16,7 @@
           "id": "wealthfolio-cash-reconciler",
           "route": "wealthfolio-cash-reconciler",
           "label": "交割現金對帳",
-          "icon": "squares-four",
+          "icon": "receipt",
           "order": 100
         }
       ]
