@@ -5,12 +5,13 @@
 ## 功能
 
 - 依帳戶、幣別與成交日彙總交易現金流。
-- BUY 預期對應 DEPOSIT；SELL 與 DIVIDEND 預期對應 WITHDRAWAL。
+- BUY 預期對應 DEPOSIT；SELL 與 DIVIDEND 預期對應 WITHDRAWAL。一般 BUY／SELL 與 Wealthfolio 相同，數量和單價齊全時以 `quantity * unitPrice` 計算成交額，不重複套用可能已包含手續費的 `amount`。
 - 手續費與稅會納入預期金額。
 - DIVIDEND 會依 `amount - fee - tax` 建議轉出淨額；獨立的 TAX activity 尚未拆成另一筆轉出規則。
 - `DIVIDEND_IN_KIND` 是以資產單位發放、沒有現金流，不會建立 WITHDRAWAL 建議。
 - 畫面按日彙總，建立時逐筆新增，comment 會指出原始交易。
 - metadata 保存原始 activity ID，避免重複建立並能發現金額變更或孤兒 activity。
+- 已由本 addon 建立但金額過期的 activity，可在使用者勾選確認後更新為正確金額。
 - 只在使用者勾選並確認後呼叫 `saveMany`，不會背景自動寫入。
 
 第一版採成交日，不推算台灣 T+2 交割日；金額容差預設為 1 元，可在頁面調整。

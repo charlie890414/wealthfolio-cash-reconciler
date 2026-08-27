@@ -3,6 +3,7 @@ import {
   type CashProposal,
   type ReconciliationActivity,
   toCashActivityCreate,
+  toCashActivityUpdate,
   toReconciliationActivity,
 } from '../domain/reconciliation';
 
@@ -55,11 +56,11 @@ export async function loadActivities(ctx: AddonContext, accountId?: string): Pro
   );
 }
 
-export async function createCashActivities(ctx: AddonContext, proposals: CashProposal[]): Promise<void> {
+export async function saveCashActivities(ctx: AddonContext, proposals: CashProposal[]): Promise<void> {
   if (proposals.length === 0) return;
   const result = await ctx.api.activities.saveMany({
-    creates: proposals.map(toCashActivityCreate),
-    updates: [],
+    creates: proposals.filter((proposal) => !proposal.existingActivityId).map(toCashActivityCreate),
+    updates: proposals.filter((proposal) => proposal.existingActivityId).map(toCashActivityUpdate),
     deleteIds: [],
   });
   if (result.errors.length > 0) {

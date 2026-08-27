@@ -60,7 +60,8 @@ export interface CashProposal {
   comment: string;
   metadata: Record<string, unknown>;
   relatedActivityId: string;
-  status: 'missing' | 'partial';
+  existingActivityId?: string;
+  status: 'missing' | 'partial' | 'stale';
 }
 
 export function toCashActivityCreate(proposal: CashProposal) {
@@ -72,6 +73,14 @@ export function toCashActivityCreate(proposal: CashProposal) {
     currency: proposal.currency,
     comment: proposal.comment,
     metadata: JSON.stringify(proposal.metadata),
+  };
+}
+
+export function toCashActivityUpdate(proposal: CashProposal) {
+  if (!proposal.existingActivityId) throw new Error('Missing existing activity ID');
+  return {
+    id: proposal.existingActivityId,
+    ...toCashActivityCreate(proposal),
   };
 }
 
@@ -146,11 +155,18 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
   if (activity.activityType !== 'BUY' && activity.activityType !== 'SELL' && activity.activityType !== 'DIVIDEND') return null;
   if (activity.activityType === 'DIVIDEND' && activity.subtype === 'DIVIDEND_IN_KIND') return null;
 
-  const quantity = asNumber(activity.quantity);
-  const unitPrice = asNumber(activity.unitPrice);
-  const grossAmount = asNumber(activity.amount) || quantity * unitPrice;
-  const fee = asNumber(activity.fee);
-  const tax = asNumber(activity.tax);
+  const quantity = Math.abs(asNumber(activity.quantity));
+  const unitPrice = Math.abs(asNumber(activity.unitPrice));
+  const amount = Math.abs(asNumber(activity.amount));
+  // Wealthfolio books ordinary BUY/SELL cash from quantity * unit price when
+  // both fields are present. The stored amount may already include fees, so
+  // preferring it would apply those fees twice. DIVIDEND and incomplete trade
+  // rows use amount instead.
+  const grossAmount = activity.activityType !== 'DIVIDEND' && quantity !== 0 && unitPrice !== 0
+    ? quantity * unitPrice
+    : amount;
+  const fee = Math.abs(asNumber(activity.fee));
+  const tax = Math.abs(asNumber(activity.tax));
   const expectedAmount = roundMoney(
     activity.activityType === 'BUY' ? grossAmount + fee + tax : grossAmount - fee - tax,
   );
@@ -178,7 +194,12 @@ function generatedRelation(activity: ReconciliationActivity): string | undefined
   return typeof relatedId === 'string' ? relatedId : undefined;
 }
 
-function proposalFor(expectation: TradeExpectation, amount: number, status: 'missing' | 'partial'): CashProposal {
+function proposalFor(
+  expectation: TradeExpectation,
+  amount: number,
+  status: 'missing' | 'partial' | 'stale',
+  existingActivityId?: string,
+): CashProposal {
   const roundedAmount = roundMoney(amount);
   const label = expectation.activityType === 'DIVIDEND' ? '股息' : expectation.activityType;
   const direction = expectation.activityType === 'BUY' ? '入金' : expectation.activityType === 'DIVIDEND' ? '轉出' : '出金';
@@ -200,6 +221,7 @@ function proposalFor(expectation: TradeExpectation, amount: number, status: 'mis
       relatedActivityType: expectation.activityType,
     },
     relatedActivityId: expectation.activityId,
+    existingActivityId,
     status,
   };
 }
@@ -269,7 +291,10 @@ function buildDay(
     const generated = generatedByTrade.get(expectation.activityId);
     if (generated) {
       const existingAmount = asNumber(generated.amount);
-      if (sameAmount(existingAmount, expectation.expectedAmount, policy.amountTolerance)) {
+      // Activities created by this addon are controlled one-to-one offsets and
+      // should stay exact to the cent. The user tolerance is only for matching
+      // unrelated/manual cash activities.
+      if (roundMoney(existingAmount) === expectation.expectedAmount) {
         usedCashIds.add(generated.id);
         trades.push({
           expectation,
@@ -283,6 +308,7 @@ function buildDay(
           status: 'stale',
           matchedCashActivityId: generated.id,
           matchedAmount: existingAmount,
+          proposal: proposalFor(expectation, expectation.expectedAmount, 'stale', generated.id),
           note: `已建立的資金 activity 為 ${existingAmount}，目前預期為 ${expectation.expectedAmount}`,
         });
       }

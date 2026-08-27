@@ -3,10 +3,10 @@ import type { AddonContext } from '@wealthfolio/addon-sdk';
 import { Card, CardContent } from '@wealthfolio/ui';
 import {
   type AccountOption,
-  createCashActivities,
   loadAccounts,
   loadActivities,
   refreshHostData,
+  saveCashActivities,
 } from '../lib/wealthfolio';
 import { loadPreferences, savePreferences } from '../lib/storage';
 import {
@@ -173,12 +173,12 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
       const latestProposals = latestReport.days
         .flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])))
         .filter((proposal) => selected.has(proposalKey(proposal)));
-      await createCashActivities(ctx, latestProposals);
+      await saveCashActivities(ctx, latestProposals);
       refreshHostData(ctx);
       await scan();
-      ctx.api.toast.success(`已新增 ${latestProposals.length} 筆資金 activity`);
+      ctx.api.toast.success(`已新增或修正 ${latestProposals.length} 筆資金 activity`);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '新增資金 activity 失敗';
+      const message = cause instanceof Error ? cause.message : '新增或修正資金 activity 失敗';
       setError(message);
       ctx.api.toast.error(message);
     } finally {
@@ -242,24 +242,24 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="font-semibold">每日檢查結果</h2>
-                  <p className="text-sm text-muted-foreground">畫面按日彙總，建立時仍會逐筆產生並在 comment 標示來源。</p>
+                  <p className="text-sm text-muted-foreground">畫面按日彙總，確認時會逐筆新增或修正，comment 會標示來源。</p>
                 </div>
                 <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving || confirmingCreate || selectedProposals.length === 0} onClick={requestCreateSelected}>
-                  {saving ? '新增中…' : `新增選取的 ${selectedProposals.length} 筆`}
+                  {saving ? '處理中…' : `新增／修正選取的 ${selectedProposals.length} 筆`}
                 </button>
               </div>
 
               {confirmingCreate && (
-                <div role="dialog" aria-label="確認新增資金 activity" className="rounded border border-primary/40 bg-primary/5 p-3 space-y-3">
-                  <p className="font-medium">確定新增以下 {selectedProposals.length} 筆資金 activity？</p>
+                <div role="dialog" aria-label="確認新增或修正資金 activity" className="rounded border border-primary/40 bg-primary/5 p-3 space-y-3">
+                  <p className="font-medium">確定新增或修正以下 {selectedProposals.length} 筆資金 activity？</p>
                   <ul className="text-sm list-disc pl-5">
                     {selectedProposals.map((proposal) => (
-                      <li key={proposalKey(proposal)}>{dateKey(proposal.activityDate)} {proposal.activityType} {money(proposal.amount, proposal.currency)}</li>
+                      <li key={proposalKey(proposal)}>{proposal.existingActivityId ? '修正' : '新增'} {dateKey(proposal.activityDate)} {proposal.activityType} {money(proposal.amount, proposal.currency)}</li>
                     ))}
                   </ul>
                   <div className="flex gap-2 justify-end">
                     <button className="rounded border px-3 py-2" onClick={() => setConfirmingCreate(false)}>取消</button>
-                    <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving} onClick={() => void createSelected()}>確認新增</button>
+                    <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving} onClick={() => void createSelected()}>確認執行</button>
                   </div>
                 </div>
               )}
@@ -273,7 +273,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                   </summary>
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead><tr className="border-b text-left"><th className="py-2 pr-3">新增</th><th className="py-2 pr-3">交易</th><th className="py-2 pr-3">預期金額</th><th className="py-2 pr-3">狀態</th><th className="py-2">說明</th></tr></thead>
+                      <thead><tr className="border-b text-left"><th className="py-2 pr-3">處理</th><th className="py-2 pr-3">交易</th><th className="py-2 pr-3">預期金額</th><th className="py-2 pr-3">狀態</th><th className="py-2">說明</th></tr></thead>
                       <tbody>
                         {day.trades.map((trade) => (
                           <tr key={trade.expectation.activityId} className="border-b last:border-0">
