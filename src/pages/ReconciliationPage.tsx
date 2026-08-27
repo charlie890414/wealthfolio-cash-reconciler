@@ -15,6 +15,7 @@ import {
   type ReconciliationPolicy,
   type ReconciliationReport,
   type ReconciliationStatus,
+  dateKey,
 } from '../domain/reconciliation';
 
 interface ReconciliationPageProps {
@@ -253,7 +254,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                   <p className="font-medium">確定新增以下 {selectedProposals.length} 筆資金 activity？</p>
                   <ul className="text-sm list-disc pl-5">
                     {selectedProposals.map((proposal) => (
-                      <li key={proposalKey(proposal)}>{proposal.activityDate} {proposal.activityType} {money(proposal.amount, proposal.currency)}</li>
+                      <li key={proposalKey(proposal)}>{dateKey(proposal.activityDate)} {proposal.activityType} {money(proposal.amount, proposal.currency)}</li>
                     ))}
                   </ul>
                   <div className="flex gap-2 justify-end">

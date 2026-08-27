@@ -42,6 +42,7 @@ export interface TradeExpectation {
   fee: number;
   tax: number;
   date: string;
+  activityDate: Date | string;
   symbol: string;
   accountId: string;
   accountName: string;
@@ -53,7 +54,7 @@ export interface CashProposal {
   accountId: string;
   accountName: string;
   activityType: 'DEPOSIT' | 'WITHDRAWAL';
-  activityDate: string;
+  activityDate: Date | string;
   amount: number;
   currency: string;
   comment: string;
@@ -163,6 +164,7 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
     fee: roundMoney(fee),
     tax: roundMoney(tax),
     date: dateKey(activity.date),
+    activityDate: activity.date instanceof Date ? new Date(activity.date.getTime()) : activity.date,
     symbol: activity.symbol || '現金交易',
     accountId: activity.accountId,
     accountName: activity.accountName,
@@ -185,7 +187,9 @@ function proposalFor(expectation: TradeExpectation, amount: number, status: 'mis
     accountId: expectation.accountId,
     accountName: expectation.accountName,
     activityType: expectation.expectedActivityType,
-    activityDate: expectation.date,
+    // Keep the source trade timestamp. Using the day bucket here would reset the
+    // time to midnight and make the generated cash activity disagree with it.
+    activityDate: expectation.activityDate,
     amount: roundedAmount,
     currency: expectation.currency,
     comment: `自動建立：${label} ${expectation.symbol} ${expectation.date} 的${direction}`,
