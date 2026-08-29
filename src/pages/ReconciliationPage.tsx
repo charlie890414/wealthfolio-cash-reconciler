@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AddonContext } from '@wealthfolio/addon-sdk';
-import { Card, CardContent } from '@wealthfolio/ui';
+import { Button, Card, CardContent, Checkbox, Input } from '@wealthfolio/ui';
 import {
   type AccountOption,
   loadAccounts,
@@ -187,14 +187,14 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
   };
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="mx-auto max-w-7xl space-y-5 p-6">
       <div>
         <h1 className="text-2xl font-semibold">交割現金對帳</h1>
         <p className="text-muted-foreground mt-1">按成交日檢查 BUY／SELL／DIVIDEND 是否有對應的 DEPOSIT／WITHDRAWAL。</p>
       </div>
 
       <Card>
-        <CardContent className="p-4">
+        <CardContent className="p-5">
           <div className="grid gap-3 md:grid-cols-5 items-end">
             <label className="text-sm">
               <span className="block mb-1 font-medium">證券帳戶</span>
@@ -206,19 +206,19 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
             </label>
             <label className="text-sm">
               <span className="block mb-1 font-medium">開始日期</span>
-              <input className="w-full rounded border px-2 py-2 bg-background" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+              <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
             </label>
             <label className="text-sm">
               <span className="block mb-1 font-medium">結束日期</span>
-              <input className="w-full rounded border px-2 py-2 bg-background" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+              <Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
             </label>
             <label className="text-sm">
               <span className="block mb-1 font-medium">金額容差</span>
-              <input className="w-full rounded border px-2 py-2 bg-background" type="number" min="0" step="0.01" value={tolerance} onChange={(event) => setTolerance(event.target.value)} />
+              <Input type="number" min="0" step="0.01" value={tolerance} onChange={(event) => setTolerance(event.target.value)} />
             </label>
-            <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={!accountId || loading} onClick={() => void scan()}>
+            <Button disabled={!accountId || loading} onClick={() => void scan()}>
               {loading ? '掃描中…' : '重新掃描'}
-            </button>
+            </Button>
           </div>
           {selectedAccount && selectedAccount.trackingMode !== 'TRANSACTIONS' && (
             <p className="text-amber-600 text-sm mt-3">目前帳戶不是 Transactions mode；此 addon 主要針對交易明細帳戶。</p>
@@ -238,15 +238,15 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
           </div>
 
           <Card>
-            <CardContent className="p-4 space-y-4">
+            <CardContent className="p-5 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="font-semibold">每日檢查結果</h2>
                   <p className="text-sm text-muted-foreground">畫面按日彙總，確認時會逐筆新增或修正，comment 會標示來源。</p>
                 </div>
-                <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving || confirmingCreate || selectedProposals.length === 0} onClick={requestCreateSelected}>
+                <Button disabled={saving || confirmingCreate || selectedProposals.length === 0} onClick={requestCreateSelected}>
                   {saving ? '處理中…' : `新增／修正選取的 ${selectedProposals.length} 筆`}
-                </button>
+                </Button>
               </div>
 
               {confirmingCreate && (
@@ -258,8 +258,8 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                     ))}
                   </ul>
                   <div className="flex gap-2 justify-end">
-                    <button className="rounded border px-3 py-2" onClick={() => setConfirmingCreate(false)}>取消</button>
-                    <button className="rounded bg-primary text-primary-foreground px-3 py-2 disabled:opacity-50" disabled={saving} onClick={() => void createSelected()}>確認執行</button>
+                    <Button variant="outline" onClick={() => setConfirmingCreate(false)}>取消</Button>
+                    <Button disabled={saving} onClick={() => void createSelected()}>確認執行</Button>
                   </div>
                 </div>
               )}
@@ -277,7 +277,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                       <tbody>
                         {day.trades.map((trade) => (
                           <tr key={trade.expectation.activityId} className="border-b last:border-0">
-                            <td className="py-2 pr-3">{trade.proposal ? <input type="checkbox" disabled={confirmingCreate || saving} checked={selected.has(proposalKey(trade.proposal))} onChange={() => toggleProposal(trade.proposal!)} /> : '—'}</td>
+                            <td className="py-2 pr-3">{trade.proposal ? <Checkbox disabled={confirmingCreate || saving} checked={selected.has(proposalKey(trade.proposal))} onCheckedChange={() => toggleProposal(trade.proposal!)} /> : '—'}</td>
                             <td className="py-2 pr-3">{trade.expectation.activityType} {trade.expectation.symbol}<br /><span className="text-xs text-muted-foreground">{trade.expectation.activityId}</span></td>
                             <td className="py-2 pr-3">{money(trade.expectation.expectedAmount, day.currency)}</td>
                             <td className={`py-2 pr-3 ${statusClass(trade.status)}`}>{statusLabel(trade.status)}</td>
@@ -310,5 +310,5 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
-  return <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="text-lg font-semibold mt-1">{value}</div></CardContent></Card>;
+  return <Card><CardContent className="p-5"><div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div><div className="mt-1 text-lg font-semibold">{value}</div></CardContent></Card>;
 }
