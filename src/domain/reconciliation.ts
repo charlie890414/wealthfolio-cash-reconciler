@@ -128,14 +128,7 @@ export interface ReconciliationReport {
 const GENERATED_BY = 'tw-cash-reconciler';
 
 function asNumber(value: string | number | null | undefined): number {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (typeof value !== 'string' || value.trim() === '') return 0;
-  const parsed = Number(value.replace(/,/g, ''));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  return Number(moneyValue(value).toString());
 }
 
 export function dateKey(value: Date | string): string {
@@ -168,7 +161,10 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
   const fee = Math.abs(asNumber(activity.fee));
   const tax = Math.abs(asNumber(activity.tax));
   const expectedAmount = roundMoney(
-    activity.activityType === 'BUY' ? grossAmount + fee + tax : grossAmount - fee - tax,
+    activity.activityType === 'BUY'
+      ? moneyValue(grossAmount).plus(fee).plus(tax)
+      : moneyValue(grossAmount).minus(fee).minus(tax),
+    activity.currency,
   );
 
   return {
@@ -176,9 +172,9 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
     activityType: activity.activityType,
     expectedActivityType: activity.activityType === 'BUY' ? 'DEPOSIT' : 'WITHDRAWAL',
     expectedAmount: Math.max(0, expectedAmount),
-    grossAmount: roundMoney(grossAmount),
-    fee: roundMoney(fee),
-    tax: roundMoney(tax),
+    grossAmount: roundMoney(grossAmount, activity.currency),
+    fee: roundMoney(fee, activity.currency),
+    tax: roundMoney(tax, activity.currency),
     date: dateKey(activity.date),
     activityDate: activity.date instanceof Date ? new Date(activity.date.getTime()) : activity.date,
     symbol: activity.symbol || '現金交易',
@@ -200,7 +196,7 @@ function proposalFor(
   status: 'missing' | 'partial' | 'stale',
   existingActivityId?: string,
 ): CashProposal {
-  const roundedAmount = roundMoney(amount);
+  const roundedAmount = roundMoney(amount, expectation.currency);
   const label = expectation.activityType === 'DIVIDEND' ? '股息' : expectation.activityType;
   const direction = expectation.activityType === 'BUY' ? '入金' : expectation.activityType === 'DIVIDEND' ? '轉出' : '出金';
   return {
@@ -294,7 +290,7 @@ function buildDay(
       // Activities created by this addon are controlled one-to-one offsets and
       // should stay exact to the cent. The user tolerance is only for matching
       // unrelated/manual cash activities.
-      if (roundMoney(existingAmount) === expectation.expectedAmount) {
+      if (roundMoney(existingAmount, expectation.currency) === expectation.expectedAmount) {
         usedCashIds.add(generated.id);
         trades.push({
           expectation,
@@ -348,12 +344,12 @@ function buildDay(
   for (const trade of stillMissing) {
     const type = trade.expectation.expectedActivityType;
     const available = availableByType.get(type) || 0;
-    const remaining = roundMoney(trade.expectation.expectedAmount - available);
+    const remaining = roundMoney(trade.expectation.expectedAmount - available, trade.expectation.currency);
     if (remaining <= policy.amountTolerance) {
       trade.status = 'covered';
       trade.matchedAmount = trade.expectation.expectedAmount;
       trade.note = '由同日彙總的既有資金 activity 覆蓋。';
-      availableByType.set(type, roundMoney(Math.max(0, available - trade.expectation.expectedAmount)));
+      availableByType.set(type, roundMoney(Math.max(0, available - trade.expectation.expectedAmount), trade.expectation.currency));
     } else if (available > policy.amountTolerance) {
       trade.status = 'partial';
       trade.matchedAmount = available;
@@ -367,18 +363,22 @@ function buildDay(
 
   const expectedDeposit = roundMoney(
     expectations.filter((item) => item.expectedActivityType === 'DEPOSIT').reduce((sum, item) => sum + item.expectedAmount, 0),
+    currency,
   );
   const expectedWithdrawal = roundMoney(
     expectations.filter((item) => item.expectedActivityType === 'WITHDRAWAL').reduce((sum, item) => sum + item.expectedAmount, 0),
+    currency,
   );
   const existingDeposit = roundMoney(
     cashActivities.filter((item) => item.activityType === 'DEPOSIT').reduce((sum, item) => sum + asNumber(item.amount), 0),
+    currency,
   );
   const existingWithdrawal = roundMoney(
     cashActivities.filter((item) => item.activityType === 'WITHDRAWAL').reduce((sum, item) => sum + asNumber(item.amount), 0),
+    currency,
   );
-  const missingDeposit = roundMoney(Math.max(0, expectedDeposit - existingDeposit));
-  const missingWithdrawal = roundMoney(Math.max(0, expectedWithdrawal - existingWithdrawal));
+  const missingDeposit = roundMoney(Math.max(0, expectedDeposit - existingDeposit), currency);
+  const missingWithdrawal = roundMoney(Math.max(0, expectedWithdrawal - existingWithdrawal), currency);
   const hasStale = trades.some((item) => item.status === 'stale');
   const hasExcess = existingDeposit > expectedDeposit + policy.amountTolerance || existingWithdrawal > expectedWithdrawal + policy.amountTolerance;
   const status = hasStale ? 'stale' : hasExcess ? 'excess' : trades.some((item) => item.status === 'partial') ? 'partial' : trades.some((item) => item.proposal) ? 'missing' : 'balanced';
@@ -468,8 +468,8 @@ export function reconcile(
       balancedDays: days.filter((day) => day.status === 'balanced').length,
       missingTrades: days.reduce((sum, day) => sum + day.trades.filter((trade) => trade.status === 'missing' || trade.status === 'partial').length, 0),
       proposals: proposals.length,
-      proposedDeposit: roundMoney(proposals.filter((proposal) => proposal.activityType === 'DEPOSIT').reduce((sum, proposal) => sum + proposal.amount, 0)),
-      proposedWithdrawal: roundMoney(proposals.filter((proposal) => proposal.activityType === 'WITHDRAWAL').reduce((sum, proposal) => sum + proposal.amount, 0)),
+      proposedDeposit: roundMoney(proposals.filter((proposal) => proposal.activityType === 'DEPOSIT').reduce((sum, proposal) => sum + proposal.amount, 0), proposals[0]?.currency || 'USD'),
+      proposedWithdrawal: roundMoney(proposals.filter((proposal) => proposal.activityType === 'WITHDRAWAL').reduce((sum, proposal) => sum + proposal.amount, 0), proposals[0]?.currency || 'USD'),
       orphanActivities: orphanCashActivities.length,
     },
   };
@@ -510,3 +510,4 @@ export function toReconciliationActivity(activity: {
     metadata: activity.metadata,
   };
 }
+import { moneyValue, roundMoney } from '../lib/money';

@@ -7,6 +7,9 @@
   "keywords": ["wealthfolio", "addon"],
   "license": "MIT",
   "scripts": {
+    "test": "vitest run",
+    "prepush": "pnpm type-check && pnpm test",
+    "prepare": "simple-git-hooks",
     "build": "vite build",
     "dev": "vite build --watch",
     "dev:server": "wealthfolio dev",
@@ -18,8 +21,8 @@
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.90.0",
-    "@wealthfolio/addon-sdk": "^3.6.2",
-    "@wealthfolio/ui": "^3.6.0",
+    "@wealthfolio/addon-sdk": "^3.7.0",
+    "@wealthfolio/ui": "^3.7.0",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.561.0",
     "react": "^19.2.0",
@@ -29,9 +32,9 @@
   "devDependencies": {
     "@tanstack/react-query": "^5.90.20",
     "@tailwindcss/vite": "^4.1.13",
-    "@wealthfolio/addon-dev-tools": "^3.6.0",
-    "@wealthfolio/addon-sdk": "^3.6.2",
-    "@wealthfolio/ui": "^3.6.0",
+    "@wealthfolio/addon-dev-tools": "^3.7.0",
+    "@wealthfolio/addon-sdk": "^3.7.0",
+    "@wealthfolio/ui": "^3.7.0",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.13",
     "@types/react-dom": "^19.2.3",
@@ -43,6 +46,10 @@
     "recharts": "^3.7.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
-    "vite": "^7.1.5"
-  }
+    "vite": "^7.1.5",
+    "vitest": "^4.1.11",
+    "simple-git-hooks": "^2.13.1"
+  },
+  "dependencies": { "big.js": "^7.0.1" },
+  "simple-git-hooks": { "pre-push": "pnpm prepush" }
 }
