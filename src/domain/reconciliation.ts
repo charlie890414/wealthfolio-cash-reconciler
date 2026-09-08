@@ -61,7 +61,7 @@ export interface CashProposal {
   metadata: Record<string, unknown>;
   relatedActivityId: string;
   existingActivityId?: string;
-  status: 'missing' | 'partial' | 'stale';
+  status: 'missing' | 'partial' | 'stale' | 'excess';
 }
 
 export function toCashActivityCreate(proposal: CashProposal) {
@@ -100,6 +100,7 @@ export interface ReconciliationDay {
   accountName: string;
   currency: string;
   trades: TradeReconciliation[];
+  adjustmentProposals: CashProposal[];
   cashActivities: ReconciliationActivity[];
   expectedDeposit: number;
   expectedWithdrawal: number;
@@ -131,6 +132,10 @@ function asNumber(value: string | number | null | undefined): number {
   return Number(moneyValue(value).toString());
 }
 
+function hasAmount(value: string | number | null | undefined): boolean {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
 export function dateKey(value: Date | string): string {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
@@ -151,21 +156,19 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
   const quantity = Math.abs(asNumber(activity.quantity));
   const unitPrice = Math.abs(asNumber(activity.unitPrice));
   const amount = Math.abs(asNumber(activity.amount));
-  // Wealthfolio books ordinary BUY/SELL cash from quantity * unit price when
-  // both fields are present. The stored amount may already include fees, so
-  // preferring it would apply those fees twice. DIVIDEND and incomplete trade
-  // rows use amount instead.
+  // Wealthfolio 3.8 stores amount as the final cash magnitude, including fees
+  // and taxes. Use it whenever present, including an explicit zero. Only legacy
+  // rows without amount are derived once from their economic fields.
+  const hasStoredAmount = hasAmount(activity.amount);
   const grossAmount = activity.activityType !== 'DIVIDEND' && quantity !== 0 && unitPrice !== 0
     ? quantity * unitPrice
     : amount;
   const fee = Math.abs(asNumber(activity.fee));
   const tax = Math.abs(asNumber(activity.tax));
-  const expectedAmount = roundMoney(
-    activity.activityType === 'BUY'
-      ? moneyValue(grossAmount).plus(fee).plus(tax)
-      : moneyValue(grossAmount).minus(fee).minus(tax),
-    activity.currency,
-  );
+  const derivedAmount = activity.activityType === 'BUY'
+    ? moneyValue(grossAmount).plus(fee).plus(tax)
+    : moneyValue(grossAmount).minus(fee).minus(tax);
+  const expectedAmount = roundMoney(hasStoredAmount ? amount : Math.abs(Number(derivedAmount.toString())), activity.currency);
 
   return {
     activityId: activity.id,
@@ -186,8 +189,43 @@ function expectationFor(activity: ReconciliationActivity): TradeExpectation | nu
 
 function generatedRelation(activity: ReconciliationActivity): string | undefined {
   if (activity.metadata?.generatedBy !== GENERATED_BY) return undefined;
+  if (activity.metadata?.adjustmentType === 'excess') return undefined;
   const relatedId = activity.metadata.relatedActivityId;
   return typeof relatedId === 'string' ? relatedId : undefined;
+}
+
+function isExcessAdjustment(activity: ReconciliationActivity): boolean {
+  return activity.metadata?.generatedBy === GENERATED_BY && activity.metadata?.adjustmentType === 'excess';
+}
+
+function excessProposalFor(
+  accountId: string,
+  accountName: string,
+  currency: string,
+  key: string,
+  activityType: 'DEPOSIT' | 'WITHDRAWAL',
+  amount: number,
+): CashProposal {
+  const roundedAmount = roundMoney(amount, currency);
+  const relatedActivityId = `excess:${accountId}:${currency}:${key}:${activityType}`;
+  return {
+    proposalId: `${relatedActivityId}:${roundedAmount}`,
+    accountId,
+    accountName,
+    activityType,
+    activityDate: `${key}T12:00:00`,
+    amount: roundedAmount,
+    currency,
+    comment: `自動修正：${key} 多餘資金的反向調整`,
+    metadata: {
+      generatedBy: GENERATED_BY,
+      schemaVersion: 1,
+      adjustmentType: 'excess',
+      relatedActivityId,
+    },
+    relatedActivityId,
+    status: 'excess',
+  };
 }
 
 function proposalFor(
@@ -275,9 +313,19 @@ function buildDay(
   const generatedByTrade = new Map<string, ReconciliationActivity>();
   const unlinkedCash: ReconciliationActivity[] = [];
   for (const cash of cashActivities) {
+    if (isExcessAdjustment(cash)) continue;
     const relatedId = generatedRelation(cash);
     if (relatedId) generatedByTrade.set(relatedId, cash);
     else unlinkedCash.push(cash);
+  }
+
+  // A cash row without amount is not equivalent to a zero-value cash row. It
+  // cannot safely cover a trade or be used to justify a new balancing entry.
+  const unknownCashTypes = new Set<'DEPOSIT' | 'WITHDRAWAL'>();
+  for (const cash of unlinkedCash) {
+    if ((cash.activityType === 'DEPOSIT' || cash.activityType === 'WITHDRAWAL') && !hasAmount(cash.amount)) {
+      unknownCashTypes.add(cash.activityType);
+    }
   }
 
   const usedCashIds = new Set<string>();
@@ -319,6 +367,7 @@ function buildDay(
       (cash) =>
         !usedCashIds.has(cash.id) &&
         cash.activityType === trade.expectation.expectedActivityType &&
+        hasAmount(cash.amount) &&
         sameAmount(asNumber(cash.amount), trade.expectation.expectedAmount, policy.amountTolerance),
     );
     if (candidate) {
@@ -345,7 +394,11 @@ function buildDay(
     const type = trade.expectation.expectedActivityType;
     const available = availableByType.get(type) || 0;
     const remaining = roundMoney(trade.expectation.expectedAmount - available, trade.expectation.currency);
-    if (remaining <= policy.amountTolerance) {
+    if (unknownCashTypes.has(type)) {
+      trade.status = 'partial';
+      trade.matchedAmount = 0;
+      trade.note = `同日已有 ${type} activity 缺少 amount；先在 Wealthfolio Needs review 確認，未自動新增資金。`;
+    } else if (remaining <= policy.amountTolerance) {
       trade.status = 'covered';
       trade.matchedAmount = trade.expectation.expectedAmount;
       trade.note = '由同日彙總的既有資金 activity 覆蓋。';
@@ -379,8 +432,30 @@ function buildDay(
   );
   const missingDeposit = roundMoney(Math.max(0, expectedDeposit - existingDeposit), currency);
   const missingWithdrawal = roundMoney(Math.max(0, expectedWithdrawal - existingWithdrawal), currency);
+  const proposedNetChange = trades.reduce((sum, trade) => {
+    const proposal = trade.proposal;
+    if (!proposal) return sum;
+    const existing = proposal.existingActivityId
+      ? cashActivities.find((cash) => cash.id === proposal.existingActivityId)
+      : undefined;
+    const previousAmount = existing ? asNumber(existing.amount) : 0;
+    const amountChange = proposal.amount - previousAmount;
+    return sum + (proposal.activityType === 'DEPOSIT' ? amountChange : -amountChange);
+  }, 0);
+  const projectedNet = roundMoney(existingDeposit - existingWithdrawal + proposedNetChange, currency);
+  const expectedNet = roundMoney(expectedDeposit - expectedWithdrawal, currency);
+  const netExcess = roundMoney(projectedNet - expectedNet, currency);
+  const adjustmentProposals: CashProposal[] = [];
+  if (unknownCashTypes.size > 0) {
+    // Net cash cannot be balanced while a manual cash row has an unknown
+    // amount; any compensating entry would be speculative.
+  } else if (netExcess > policy.amountTolerance) {
+    adjustmentProposals.push(excessProposalFor(accountId, accountName, currency, key, 'WITHDRAWAL', netExcess));
+  } else if (netExcess < -policy.amountTolerance) {
+    adjustmentProposals.push(excessProposalFor(accountId, accountName, currency, key, 'DEPOSIT', Math.abs(netExcess)));
+  }
   const hasStale = trades.some((item) => item.status === 'stale');
-  const hasExcess = existingDeposit > expectedDeposit + policy.amountTolerance || existingWithdrawal > expectedWithdrawal + policy.amountTolerance;
+  const hasExcess = adjustmentProposals.length > 0;
   const status = hasStale ? 'stale' : hasExcess ? 'excess' : trades.some((item) => item.status === 'partial') ? 'partial' : trades.some((item) => item.proposal) ? 'missing' : 'balanced';
 
   return {
@@ -390,6 +465,7 @@ function buildDay(
     accountName,
     currency,
     trades,
+    adjustmentProposals,
     cashActivities,
     expectedDeposit,
     expectedWithdrawal,
@@ -458,7 +534,10 @@ export function reconcile(
     if (bucket) bucket.status = 'excess';
   }
 
-  const proposals = days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])));
+  const proposals = days.flatMap((day) => [
+    ...day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])),
+    ...day.adjustmentProposals,
+  ]);
   return {
     days,
     orphanCashActivities,

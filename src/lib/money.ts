@@ -1,9 +1,7 @@
 import Big from 'big.js';
 
-const ZERO_DECIMAL_CURRENCIES = new Set(['JPY', 'KRW', 'TWD', 'VND']);
-
-export function moneyDecimalPlaces(currency: string): number {
-  return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? 0 : 2;
+export function moneyDecimalPlaces(_currency: string): number {
+  return 2;
 }
 
 export function moneyValue(value: string | number | null | undefined): Big {

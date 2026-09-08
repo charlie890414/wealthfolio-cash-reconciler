@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.1.0] - 2026-09-09
+
+### Changed
+- Require Wealthfolio 3.8.0 and SDK/UI 3.8.
+- Treat stored activity `amount` as final cash including fees and taxes.
+- Preserve explicit zero amounts, flag stale generated entries, and offer repeatable excess-cash adjustments.
+
 ## [1.0.0] - {{currentDate}}
 
 ### Added

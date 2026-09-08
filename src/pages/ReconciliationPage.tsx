@@ -34,7 +34,12 @@ function oneYearAgo(): string {
 }
 
 function money(value: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value);
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function statusLabel(status: ReconciliationStatus | ReconciliationReport['days'][number]['status']): string {
@@ -87,7 +92,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
     const nextReport = reconcile(loaded, policy);
     setActivities(loaded);
     setReport(nextReport);
-    setSelected(new Set(nextReport.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])))));
+    setSelected(new Set(nextReport.days.flatMap((day) => [...day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])), ...day.adjustmentProposals.map(proposalKey)])));
   }, [policy]);
 
   const scan = useCallback(async () => {
@@ -137,10 +142,10 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
     if (!preferencesLoaded || !accountId || loading) return;
     const nextReport = reconcile(activities, policy);
     setReport(nextReport);
-    setSelected(new Set(nextReport.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])))));
+    setSelected(new Set(nextReport.days.flatMap((day) => [...day.trades.flatMap((trade) => (trade.proposal ? [proposalKey(trade.proposal)] : [])), ...day.adjustmentProposals.map(proposalKey)])));
   }, [accountId, activities, loading, policy, preferencesLoaded]);
 
-  const proposals = report?.days.flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : []))) || [];
+  const proposals = report?.days.flatMap((day) => [...day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])), ...day.adjustmentProposals]) || [];
   const selectedProposals = proposals.filter((proposal) => selected.has(proposalKey(proposal)));
 
   const toggleProposal = (proposal: CashProposal) => {
@@ -171,7 +176,7 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
       const latest = await loadActivities(ctx, accountId);
       const latestReport = reconcile(latest, policy);
       const latestProposals = latestReport.days
-        .flatMap((day) => day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])))
+        .flatMap((day) => [...day.trades.flatMap((trade) => (trade.proposal ? [trade.proposal] : [])), ...day.adjustmentProposals])
         .filter((proposal) => selected.has(proposalKey(proposal)));
       await saveCashActivities(ctx, latestProposals);
       refreshHostData(ctx);
@@ -282,6 +287,15 @@ export default function ReconciliationPage({ ctx }: ReconciliationPageProps) {
                             <td className="py-2 pr-3">{money(trade.expectation.expectedAmount, day.currency)}</td>
                             <td className={`py-2 pr-3 ${statusClass(trade.status)}`}>{statusLabel(trade.status)}</td>
                             <td className="py-2">{trade.proposal ? `${trade.proposal.activityType} ${money(trade.proposal.amount, day.currency)} · ${trade.proposal.comment}` : trade.note || '—'}</td>
+                          </tr>
+                        ))}
+                        {day.adjustmentProposals.map((proposal) => (
+                          <tr key={proposalKey(proposal)} className="border-b last:border-0">
+                            <td className="py-2 pr-3"><Checkbox disabled={confirmingCreate || saving} checked={selected.has(proposalKey(proposal))} onCheckedChange={() => toggleProposal(proposal)} /></td>
+                            <td className="py-2 pr-3">多餘資金調整</td>
+                            <td className="py-2 pr-3">{money(proposal.amount, day.currency)}</td>
+                            <td className={`py-2 pr-3 ${statusClass('excess')}`}>{statusLabel('excess')}</td>
+                            <td className="py-2">{proposal.activityType} {money(proposal.amount, day.currency)} · {proposal.comment}</td>
                           </tr>
                         ))}
                       </tbody>

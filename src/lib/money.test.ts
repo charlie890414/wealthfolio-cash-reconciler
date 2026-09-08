@@ -6,8 +6,9 @@ describe('money', () => {
     expect(moneyValue('0.1').plus('0.2').toString()).toBe('0.3');
   });
 
-  it('rounds zero-decimal and two-decimal currencies consistently', () => {
-    expect(roundMoney('10.5', 'TWD')).toBe(11);
+  it('rounds every currency to two decimal places', () => {
+    expect(roundMoney('10.555', 'TWD')).toBe(10.56);
+    expect(roundMoney('10.554', 'JPY')).toBe(10.55);
     expect(roundMoney('10.555', 'USD')).toBe(10.56);
   });
 });
